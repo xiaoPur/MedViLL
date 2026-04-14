@@ -110,8 +110,85 @@ python downstream_task/report_generation_and_vqa/generation_decode.py \
 - 一个可用的 `MedViLL` 预训练权重目录，至少包含：
   - `pytorch_model.bin`
   - 同目录下的 `config.json`
+  
+  MedViLL 预训练权重在项目 README 的 Downloads -> Pre-trained weights 里，作者给的是 Google Drive 链接：README.md (line 14)。你现在要跑报告生成，先用主版本 MedViLL 就行：
+  
+  - MedViLL: https://drive.google.com/file/d/1shOQrOWbkIeUUsQN48fEP6wj0e266jOb/view?usp=sharing
+  - 其他几个变体也在同一段里：[GitHub README](https://github.com/SuperSupermoon/MedViLL#1-downloads)
+  
+  建议你下载后解压到服务器这个位置：
+  
+  ```
+  /root/autodl-tmp/checkpoints/medvill/ 
+  ```
+  
+  理想状态下这个目录里至少有：
+  
+  ```
+  /root/autodl-tmp/checkpoints/medvill/pytorch_model.bin /root/autodl-tmp/checkpoints/medvill/config.json 
+  ```
+  
+  然后训练时用这个：
+  
+  ```
+  --model_recover_path /root/autodl-tmp/checkpoints/medvill/pytorch_model.bin 
+  ```
+  
+  如果下载包里没有 config.json，你可以先用仓库自带这个兜底：
+  
+  ```
+  /root/autodl-tmp/MedViLL/downstream_task/report_generation_and_vqa/config.json 
+  ```
+  
+  当前我改过的代码也会优先找 checkpoint 同目录下的 config.json，找不到才回退到仓库里的 config.json (line 1)。
+  
+  结合你现在这台服务器，我建议你这样放：
+  
+  - MedViLL 权重：/root/autodl-tmp/checkpoints/medvill/
+  - bert-base-uncased：如果能联网就让它自动进 /root/.pytorch_pretrained_bert；如果你想完全可控，就手动放 /root/autodl-tmp/models/bert-base-uncased/
 - `bert-base-uncased` 的 tokenizer / 权重缓存
+  
   - 如果服务器不能联网，这一步必须提前准备好
+  
+  bert-base-uncased 建议从 Hugging Face 官方页拿：
+  
+  - 模型页: https://huggingface.co/google-bert/bert-base-uncased
+  
+  这个仓库的报告生成代码用的是老版 pytorch_pretrained_bert，它默认缓存目录不是 Hugging Face 常见的 ~/.cache/huggingface，而是：
+  
+  - /root/.pytorch_pretrained_bert
+  
+  这是代码里写死的默认值：file_utils.py (line 26)。
+  
+  所以你有两个选法：
+  
+  1. 最省事
+     让服务器联网，第一次跑时自动下载到：
+  
+  ```
+  /root/.pytorch_pretrained_bert 
+  ```
+  
+  1. 更稳妥
+     手动提前下载到一个固定目录，比如：
+  
+  ```
+  /root/autodl-tmp/models/bert-base-uncased/ 
+  ```
+  
+  里面至少放：
+  
+  ```
+  vocab.txt config.json tokenizer_config.json tokenizer.json 
+  ```
+  
+  如果你走这条路，最好后面运行时显式传：
+  
+  ```
+  --bert_model /root/autodl-tmp/models/bert-base-uncased 
+  ```
+  
+  
 - 如果你打算训练后立即评测，确保训练产生的输出目录和 checkpoint 能保留在服务器磁盘上
 
 ### 可选下载
