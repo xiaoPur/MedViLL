@@ -15,17 +15,55 @@ import torch
 import torch.nn as nn
 import torchvision
 import csv
+import warnings
+from pathlib import Path
 from transformers import BertTokenizer
 from pytorch_pretrained_bert.model import BertForSeq2SeqDecoder
 import wandb
 # import sc.seq2seq_loader_itm as seq2seq_loader
 from data_loader import Preprocess4Seq2seqDecoder
-from bleu import language_eval_bleu
 from data_parallel import DataParallelImbalance
 from collections import defaultdict
 import pickle
 import re
 import time
+from nltk.translate.bleu_score import corpus_bleu
+
+try:
+    from bleu import language_eval_bleu
+except Exception as exc:
+    _BLEU_IMPORT_ERROR = exc
+
+    def language_eval_bleu(model_recover_path, eval_model, preds):
+        warnings.warn(
+            "Falling back to local BLEU evaluation because bleu.py could not be imported: "
+            f"{_BLEU_IMPORT_ERROR}"
+        )
+        reference_path = model_recover_path.split('.')[0] + str(eval_model) + '_gt.csv'
+        hypothesis_path = model_recover_path.split('.')[0] + str(eval_model) + '.csv'
+
+        with open(reference_path, 'w', newline='') as gt, open(hypothesis_path, 'w', newline='') as gen:
+            list_of_list_of_references, list_of_list_of_hypotheses = [], []
+            for preds_item in tqdm(preds, total=len(preds)):
+                reference = preds_item['gt_caption']
+                candidate = preds_item['gen_caption']
+                csv.writer(gt).writerow([str(reference)])
+                csv.writer(gen).writerow([str(candidate)])
+
+                reference_tokens = reference.split(' ')
+                hypothesis_tokens = candidate.split(' ')
+                list_of_list_of_references.append([reference_tokens])
+                list_of_list_of_hypotheses.append(hypothesis_tokens)
+
+        bleu_1gram = corpus_bleu(list_of_list_of_references, list_of_list_of_hypotheses, weights=(1, 0, 0, 0))
+        bleu_2gram = corpus_bleu(list_of_list_of_references, list_of_list_of_hypotheses, weights=(0.5, 0.5, 0, 0))
+        bleu_3gram = corpus_bleu(list_of_list_of_references, list_of_list_of_hypotheses, weights=(0.33, 0.33, 0.33, 0))
+        bleu_4gram = corpus_bleu(list_of_list_of_references, list_of_list_of_hypotheses, weights=(0.25, 0.25, 0.25, 0.25))
+        print(f'1-Gram BLEU: {bleu_1gram:.2f}')
+        print(f'2-Gram BLEU: {bleu_2gram:.2f}')
+        print(f'3-Gram BLEU: {bleu_3gram:.2f}')
+        print(f'4-Gram BLEU: {bleu_4gram:.2f}')
+        return bleu_1gram, bleu_2gram, bleu_3gram, bleu_4gram, (float("nan"), float("nan"), float("nan"), float("nan"))
 
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -38,6 +76,31 @@ SPECIAL_TOKEN = ["[UNK]", "[PAD]", "[CLS]", "[MASK]"]
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n_gpu = torch.cuda.device_count()
 print(" # PID :", os.getpid())
+
+
+def _default_repo_root():
+    return Path(__file__).resolve().parents[2]
+
+
+def _resolve_config_path(repo_root, model_recover_path=None):
+    candidates = []
+    if model_recover_path:
+        candidates.append(Path(model_recover_path).resolve().parent / "config.json")
+    candidates.append(repo_root / "downstream_task" / "report_generation_and_vqa" / "config.json")
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return str(candidates[-1])
+
+
+def _resolve_image_path(repo_root, image_path):
+    path = Path(image_path)
+    if path.is_absolute():
+        return str(path)
+    candidate = repo_root / path
+    if candidate.exists():
+        return str(candidate)
+    return str(path)
 
 def batch_list_to_batch_tensors(batch):
     batch_tensors = []
@@ -65,6 +128,10 @@ def ascii_print(text):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--repo_root", default=str(_default_repo_root()), type=str,
+                        help="Repository root used to resolve relative paths.")
+    parser.add_argument("--config_path", default=None, type=str,
+                        help="Optional config.json path. Defaults to the checkpoint directory or repo config.")
     parser.add_argument("--img_postion", type=str, default=True, choices=[True | False])
     parser.add_argument("--img_encoding", type=str, default='fully_use_cnn', choices=['random_sample', 'fully_use_cnn'])
     parser.add_argument('--img_hidden_sz', type=int, default=2048)
@@ -126,12 +193,16 @@ def main():
     parser.add_argument('--split', type=str, default='valid')
     parser.add_argument('--drop_prob', default=0.1, type=float)
     parser.add_argument('--file_valid_jpgs', default='', type=str)
+    parser.add_argument('--generation_dataset', default='auto', choices=['auto', 'mimic-cxr', 'openi'],
+                        help='Dataset used for report generation evaluation.')
 
 
     args = parser.parse_args()
+    args.repo_root = Path(args.repo_root).resolve()
+    os.chdir(args.repo_root)
     # os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda  # setting gpu number
-    args.config_path = args.model_recover_path.split('/')[:-1]
-    args.config_path = ('/').join(args.config_path)+'/config.json'
+    if args.config_path is None:
+        args.config_path = _resolve_config_path(args.repo_root, args.model_recover_path)
 
     # fix random seed
     random.seed(args.seed)
@@ -176,7 +247,7 @@ def main():
     for model_recover_path in glob.glob(args.model_recover_path.strip()):
         for bootstrap in range(1,args.random_bootstrap_testnum+1):
             logger.info("***** Recover model: %s *****", args.model_recover_path)
-            model_recover = torch.load(args.model_recover_path)
+            model_recover = torch.load(args.model_recover_path, map_location="cpu")
 
             for key in list(model_recover.keys()):
                 model_recover[key.replace('txt_embeddings', 'bert.txt_embeddings'). replace('img_embeddings', 'bert.img_embeddings'). replace('img_encoder.model', 'bert.img_encoder.model'). replace('encoder.layer', 'bert.encoder.layer'). replace('pooler', 'bert.pooler')] = model_recover.pop(key)
@@ -210,14 +281,20 @@ def main():
             torch.cuda.empty_cache()
 
             eval_lst = []
-            if 'openi' in re.split(r'[ _/]', args.model_recover_path):
-                args.src_file = '/home/jhmoon/MedViLL/data/openi/Test.jsonl'
+            dataset_name = args.generation_dataset
+            if dataset_name == 'auto':
+                if 'openi' in re.split(r'[ _/]', args.model_recover_path):
+                    dataset_name = 'openi'
+                elif 'mimic' in re.split(r'[ _/]', args.model_recover_path):
+                    dataset_name = 'mimic-cxr'
+                else:
+                    dataset_name = 'mimic-cxr'
+
+            if dataset_name == 'openi':
+                args.src_file = str(args.repo_root / 'data' / 'openi' / 'Test.jsonl')
                 print("OpenI data load")
-            elif 'mimic' in re.split(r'[ _/]', args.model_recover_path):
-                args.src_file = '/home/jhmoon/MedViLL/data/mimic/Test.jsonl'
-                print("MimiC data load")
-            elif 'pytorch_model' in re.split(r'[ _/.]', args.model_recover_path):
-                args.src_file = '/home/jhmoon/MedViLL/data/mimic/Test.jsonl'
+            elif dataset_name == 'mimic-cxr':
+                args.src_file = str(args.repo_root / 'data' / 'mimic' / 'Test.jsonl')
                 print("MimiC data load")
             else: raise Exception("Path Error!!")
             
@@ -226,15 +303,7 @@ def main():
             radta_resample = [random.choice(img_dat) for itr in range(len(img_dat))]
 
             for src in radta_resample:
-                change_path = src['img'].split('/')
-                fixed_path = change_path[:-2]
-                fixed_path = "/".join(fixed_path)
-                static_path = change_path[-2:]
-                static_path = "/".join(static_path)            
-                if fixed_path == '/home/mimic-cxr/dataset/image_preprocessing/re_512_3ch':
-                    fixed_path = '/home/data_storage/mimic-cxr/dataset/image_preprocessing/re_512_3ch/'
-                    img_path = fixed_path + static_path
-                else: img_path=src['img']
+                img_path = _resolve_image_path(args.repo_root, src['img'])
                 src_tk = os.path.join(img_path)
                 imgid = str(src['id'])
                 label = src['label']
@@ -305,11 +374,12 @@ def main():
                                 pass
                 end = time.time()
                 print(end - start)
-                exit()
             if args.beam_size == 1:
                 predictions = [{'image_id': tup[1], 'gt_caption': tup[-1], 'gt_label': tup[-2], 'gen_caption': output_lines[img_idx]} for img_idx, tup in enumerate(input_lines)]
                 print("avg ppl: ",np.mean(total_score))
                 a,b,c,d, metric_pos1 = language_eval_bleu(args.model_recover_path, str(round(np.mean(total_score), 2))+'ppl_'+str(bootstrap)+'th_test', predictions)
+                if metric_pos1 is None:
+                    metric_pos1 = (float("nan"), float("nan"), float("nan"), float("nan"))
                 max_a.append(a)
                 max_b.append(b)
                 max_c.append(c)

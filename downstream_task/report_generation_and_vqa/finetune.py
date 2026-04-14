@@ -34,6 +34,21 @@ import pickle
 from collections import defaultdict
 import time
 
+
+def _default_repo_root():
+    return Path(__file__).resolve().parents[2]
+
+
+def _resolve_config_path(repo_root, model_recover_path=None):
+    candidates = []
+    if model_recover_path:
+        candidates.append(Path(model_recover_path).resolve().parent / "config.json")
+    candidates.append(repo_root / "downstream_task" / "report_generation_and_vqa" / "config.json")
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return str(candidates[-1])
+
 def _get_max_epoch_model(output_dir):
     fn_model_list = glob.glob(os.path.join(output_dir, "model.*.bin"))
     fn_optim_list = glob.glob(os.path.join(output_dir, "optim.*.bin"))
@@ -60,6 +75,8 @@ def setup_for_distributed(is_master):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--repo_root", default=str(_default_repo_root()), type=str,
+                        help="Repository root used to resolve relative paths.")
     parser.add_argument("--generation_dataset", default='mimic-cxr', type=str, help=["mimic-cxr, openi"])
     parser.add_argument("--vqa_rad", default="all", type=str, choices=["all", "chest", "head", "abd"])
     parser.add_argument("--data_set", default="train", type=str, help="train | valid")
@@ -94,9 +111,11 @@ def main():
     parser.add_argument("--model_recover_path", default=None, type=str,
                         help="The file of fine-tuned pretraining model. ex)'./pretrained_model/pytorch_model.bin'") # model load
     parser.add_argument("--output_dir",
-                        default='/home/edlab/jhmoon/mimic_mv_real/mimic-cxr/downstream_model/',
+                        default=str(_default_repo_root() / "outputs" / "report_generation"),
                         type=str,
                         help="The output directory where the model predictions and checkpoints will be written.")
+    parser.add_argument("--config_path", default=None, type=str,
+                        help="Optional config.json path. Defaults to the checkpoint directory or repo config.")
 
     parser.add_argument("--log_file",
                         default="training.log",
@@ -163,7 +182,7 @@ def main():
     parser.add_argument('--max_position_embeddings', type=int, default=None,
                         help="max position embeddings")
 
-    parser.add_argument('--image_root', type=str, default='../../data/mimic/re_512_3ch/Train')
+    parser.add_argument('--image_root', type=str, default=str(_default_repo_root() / 'data' / 'preprocessed'))
     parser.add_argument('--split', type=str, nargs='+', default=['train', 'valid'])
 
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
@@ -177,11 +196,17 @@ def main():
     parser.add_argument('--relax_projection',
                         action='store_true',
                         help="Use different projection layers for tasks.")
+    parser.add_argument("--local_rank", default=-1, type=int,
+                        help="Process rank for torchrun/torch.distributed.")
 
     args = parser.parse_args()
-    args.local_rank = int(os.environ['LOCAL_RANK'])
-    args.global_rank = int(os.environ["RANK"])
-    args.world_size = int(os.environ['WORLD_SIZE'])
+    args.repo_root = Path(args.repo_root).resolve()
+    os.chdir(args.repo_root)
+    args.local_rank = int(os.environ.get("LOCAL_RANK", args.local_rank))
+    args.global_rank = int(os.environ.get("RANK", 0))
+    args.world_size = int(os.environ.get("WORLD_SIZE", 1))
+    if args.local_rank < 0:
+        args.local_rank = 0 if torch.cuda.is_available() else -1
 
     if args.model_recover_path !=None:
         args.exp_name = args.model_recover_path.split('/')[-2]
@@ -190,17 +215,13 @@ def main():
     print('global_rank: {}, local rank: {}'.format(args.global_rank, args.local_rank))
         
     args.max_seq_length = args.max_len_b + args.len_vis_input + 3 # +3 for 2x[SEP] and [CLS]
-    if args.model_recover_path !=None:
-        args.config_path = args.model_recover_path.split('/')[:-1]
-        args.config_path = ('/').join(args.config_path)+'/config.json'    
-    else:
-        args.config_path = '/home/edlab/jhmoon/mimic_mv_real/mimic-cxr/pre-train/base_PAR_36,128/pytorch_model.bin'.split('/')[:-1]
-        args.config_path = ('/').join(args.config_path)+'/config.json'    
+    if args.config_path is None:
+        args.config_path = _resolve_config_path(args.repo_root, args.model_recover_path)
 
     if args.tasks=='vqa':
-        args.src_file = '/home/data_storage/mimic-cxr/dataset/data_RAD'
-        args.img_path = '/home/data_storage/mimic-cxr/dataset/vqa_image/vqa_512_3ch'
-        args.train_dataset = '/home/data_storage/mimic-cxr/dataset/data_RAD/trainet.json'
+        args.src_file = str(args.repo_root / 'data' / 'vqa_rad')
+        args.img_path = str(args.repo_root / 'data' / 'vqa_image' / 'vqa_512_3ch')
+        args.train_dataset = str(args.repo_root / 'data' / 'vqa_rad' / 'trainet.json')
         args.file_valid_jpgs = 'data/vqa_rad/vqa_rad_original_set.json'  
     else:
         if args.generation_dataset == 'mimic-cxr':
@@ -223,14 +244,20 @@ def main():
         level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    torch.cuda.set_device(args.local_rank)
-    device = torch.device("cuda", args.local_rank)
-    
-    torch.distributed.init_process_group(backend='nccl', init_method = args.dist_url, world_size=args.world_size, rank=args.global_rank)
-            
-    logger.info("device: {} distributed training: {}, 16-bits training: {}".format(device,  bool(args.local_rank != -1), args.fp16))
-    torch.distributed.barrier()
-    setup_for_distributed(args.local_rank == 0)
+    use_distributed = torch.distributed.is_available() and torch.distributed.is_initialized()
+    if args.world_size > 1 and torch.distributed.is_available():
+        torch.cuda.set_device(args.local_rank)
+        device = torch.device("cuda", args.local_rank)
+        if not torch.distributed.is_initialized():
+            torch.distributed.init_process_group(backend='nccl', init_method = args.dist_url, world_size=args.world_size, rank=args.global_rank)
+        use_distributed = True
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    logger.info("device: {} distributed training: {}, 16-bits training: {}".format(device,  use_distributed, args.fp16))
+    if use_distributed:
+        torch.distributed.barrier()
+    setup_for_distributed(args.global_rank in (-1, 0))
     torch.backends.cudnn.benchmark
 
     if args.gradient_accumulation_steps < 1:
@@ -269,7 +296,10 @@ def main():
         s2s_prob=args.s2s_prob, # this must be set to 1.
         bi_prob=args.bi_prob, tasks=args.tasks)
 
-    train_sampler = DistributedSampler(train_dataset)
+    if use_distributed:
+        train_sampler = DistributedSampler(train_dataset)
+    else:
+        train_sampler = RandomSampler(train_dataset)
 
     train_dataloader = torch.utils.data.DataLoader(train_dataset,
         batch_size=args.train_batch_size, sampler=train_sampler, num_workers=args.num_workers,
@@ -343,12 +373,13 @@ def main():
     if args.wandb and utils.is_main_process():
         wandb.watch(model)
 
-    try:
-        from torch.nn.parallel import DistributedDataParallel as DDP
-    except ImportError:
-        raise ImportError(
-            "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
-    model = DDP(model, device_ids = [args.local_rank], output_device = args.local_rank, find_unused_parameters=True)
+    if use_distributed:
+        try:
+            from torch.nn.parallel import DistributedDataParallel as DDP
+        except ImportError:
+            raise ImportError(
+                "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
+        model = DDP(model, device_ids = [args.local_rank], output_device = args.local_rank, find_unused_parameters=True)
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
@@ -389,7 +420,7 @@ def main():
             else:start_epoch = 1
 
             for i_epoch in trange(start_epoch, args.num_train_epochs+1, desc="Epoch"):
-                if args.local_rank >= 0:
+                if use_distributed:
                     train_sampler.set_epoch(i_epoch-1)
                 iter_bar = tqdm(train_dataloader, desc='Iter (loss=X.XXX)')
                 nbatches = len(train_dataloader)
@@ -469,7 +500,7 @@ def main():
                 logger.info("***** CUDA.empty_cache() *****")
                 torch.cuda.empty_cache()
 
-                if args.world_size > 1:
+                if use_distributed and args.world_size > 1:
                     torch.distributed.barrier()
             if args.tasks == 'vqa':
                 total_acc, closed_acc, open_acc = vqa_eval(args, device, logger, bi_uni_pipeline, tokenizer, model, results_dict)

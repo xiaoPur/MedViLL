@@ -1,19 +1,26 @@
-# #!/bin/bash
-model_path=$1
-export PYTHONPATH=/home/jhmoon/MedViLL/downstream_task/report_generation_and_vqa/chexpert_labeler/NegBio:$PYTHONPATH
-# for itr in $(find ${model_path}/* -name model.50.bin);
-# for itr in $(find ${model_path}/* -name pytorch_model.bin);
-# for itr in $(find ${model_path}/* -name "*.bin" -print0 |xargs -r -0 ls -1 -t | head -1);
-for itr in $(find ${model_path}/* -name "model.50.bin");# -print0 |xargs -r -0 ls -1 -t | head -1);
+#!/bin/bash
+set -e
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "${SCRIPT_DIR}/../.." && pwd)
+MODEL_ROOT=${1:-"${REPO_ROOT}/outputs/report_generation/openi"}
+MASTER_PORT=${MASTER_PORT:-34222}
+
+cd "${REPO_ROOT}"
+
+if [ -f "${MODEL_ROOT}" ]; then
+    MODEL_FILES=("${MODEL_ROOT}")
+else
+    mapfile -t MODEL_FILES < <(find "${MODEL_ROOT}" -name "model.50.bin")
+fi
+
+for itr in "${MODEL_FILES[@]}";
 do
     echo ""
-    echo ${itr}
-    python $(dirname "$0")/generation_decode.py --model_recover_path ${itr} --beam_size 1
+    echo "${itr}"
+    python "${SCRIPT_DIR}/generation_decode.py" \
+        --repo_root "${REPO_ROOT}" \
+        --generation_dataset openi \
+        --model_recover_path "${itr}" \
+        --beam_size 1
 done
-        # --num-gpus 2 MODEL.WEIGHTS "/home/jhmoon/git/Optimal-transport/moco_align_uniform/resnet18_dense_stl10_results/exp1/768b_0.36lr_0.1aw_2a_0.8uw_2t_1nw_0.1t/detect.pkl" OUTPUT_DIR "/home/jhmoon/git/Optimal-transport/moco_align_uniform/resnet18_dense_stl10_results/exp1/768b_0.36lr_0.1aw_2a_0.8uw_2t_1nw_0.1t/det"
-
-# /home/edlab/jhmoon/mimic_mv_real/mimic-cxr/downstream_model/report_generation/base_mimic_par_256_128
-# /home/edlab/jhmoon/mimic_mv_real/mimic-cxr/downstream_model/report_generation/base_bi_mimic
-# /home/edlab/jhmoon/mimic_mv_real/mimic-cxr/downstream_model/report_generation/base_noncross_openi
-# /home/edlab/jhmoon/mimic_mv_real/mimic-cxr/downstream_model/report_generation/base_s2s_openi
-# /home/edlab/jhmoon/mimic_mv_real/mimic-cxr/downstream_model/report_generation/base_vlp_openi

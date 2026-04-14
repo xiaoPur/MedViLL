@@ -1,5 +1,7 @@
 numpy
 pandas
+nltk
+wandb
 Pillow
 PyYAML
 scikit-learn
