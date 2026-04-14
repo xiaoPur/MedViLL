@@ -20,6 +20,7 @@ import h5py
 from tqdm import tqdm
 import glob
 import _pickle as cPickle
+from image_preprocess import resize_visual_image
 
 def truncate_tokens_pair(tokens_a, tokens_b, max_len, max_len_a=0, max_len_b=0, trunc_seg=None, always_truncate_tail=False):
     num_truncated_a = [0, 0]
@@ -434,11 +435,7 @@ class Preprocess4Seq2seq(Pipeline):
         # loading images
         img = Image.open(img_path)
         img = self.gray_scale_3ch(img)
-        if  self.len_vis_input < 100:
-            img = transforms.Resize([224, 224])(img)
-        elif self.tasks == 'vqa':
-            img = transforms.Resize([512, 512])(img)
-        else: pass
+        img = resize_visual_image(img, self.len_vis_input)
         img = self.ToTensor(img)
         img = self.res_Normalize(img)
         vis_pe = torch.arange(2048, dtype=torch.float)
@@ -541,6 +538,7 @@ class Preprocess4Seq2seqDecoder(Pipeline):
 
         img = Image.open(img_path)
         img = self.gray_scale_3ch(img)
+        img = resize_visual_image(img, self.len_vis_input)
         img = self.ToTensor(img)
         img = self.res_Normalize(img)
         
