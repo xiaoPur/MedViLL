@@ -33,6 +33,7 @@ import utils
 import pickle
 from collections import defaultdict
 import time
+from json_compat import make_json_compatible
 
 
 def _default_repo_root():
@@ -233,7 +234,7 @@ def main():
 
     print(" # PID :", os.getpid())
     os.makedirs(args.output_dir, exist_ok=True)
-    json.dump(args.__dict__, open(os.path.join(
+    json.dump(make_json_compatible(vars(args)), open(os.path.join(
         args.output_dir, 'opt.json'), 'w'), sort_keys=True, indent=2)
 
     logging.basicConfig(
@@ -270,7 +271,7 @@ def main():
     utils.set_seed(123)
 
     if args.wandb and utils.is_main_process():
-        wandb.init(config=args, project='report_gen', entity='mimic-cxr',  name = args.exp_name, reinit=True)
+        wandb.init(config=make_json_compatible(vars(args)), project='report_gen', entity='mimic-cxr',  name = args.exp_name, reinit=True)
 
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=True)
 

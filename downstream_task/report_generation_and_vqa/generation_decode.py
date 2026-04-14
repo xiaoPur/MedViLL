@@ -28,6 +28,7 @@ import pickle
 import re
 import time
 from nltk.translate.bleu_score import corpus_bleu
+from json_compat import make_json_compatible
 
 try:
     from bleu import language_eval_bleu
@@ -268,7 +269,7 @@ def main():
             del model_recover
 
             if args.wandb and utils.is_main_process():
-                wandb.init(config=args, project='Medvill', entity='mimic-cxr')
+                wandb.init(config=make_json_compatible(vars(args)), project='Medvill', entity='mimic-cxr')
 
             model.to(device)
 

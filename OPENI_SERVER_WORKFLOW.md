@@ -22,6 +22,32 @@
 - `indiana_projections.csv`
 - `indiana_reports.csv`
 
+## Environment Check
+
+Before training, activate the same conda env used to install `medvill.yaml`.
+That environment should already contain runtime packages such as `boto3`.
+If you start training from the base env instead, `pytorch_pretrained_bert/file_utils.py`
+will usually fail with `ModuleNotFoundError: No module named 'boto3'`.
+
+Recommended checks:
+
+```bash
+conda activate medvill
+which python
+python -c "import sys, boto3, torch; print(sys.executable); print('boto3', boto3.__version__); print('torch', torch.__version__)"
+```
+
+Expected result:
+
+- `which python` points to `.../envs/medvill/bin/python`
+- the Python check prints both `boto3` and `torch` versions without error
+
+If `boto3` is still missing inside that env, install the pinned pair once:
+
+```bash
+pip install boto3==1.16.31 botocore==1.19.31
+```
+
 ## 从原始 IU X-ray 到仓库可用数据
 
 在服务器上执行：
@@ -61,7 +87,7 @@ python scripts/prepare_openi_server.py \
 ```bash
 cd /root/autodl-tmp/MedViLL
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=8 \
-torchrun --standalone --nproc_per_node=1 --master_port 34221 \
+python -m torch.distributed.launch --nproc_per_node=1 --master_port 34221 --use_env \
 downstream_task/report_generation_and_vqa/finetune.py \
   --repo_root /root/autodl-tmp/MedViLL \
   --output_dir /root/autodl-tmp/MedViLL/outputs/report_generation/openi \
@@ -72,24 +98,35 @@ downstream_task/report_generation_and_vqa/finetune.py \
   --mask_prob 0.15 \
   --s2s_prob 1 \
   --bi_prob 0 \
-  --model_recover_path /path/to/medvill_pretrain/pytorch_model.bin
+  --model_recover_path /root/autodl-tmp/checkpoints/medvill/pytorch_model.bin 
 ```
 
 说明：
 
 - `--model_recover_path` 需要指向一个可用的预训练权重文件。
 - 训练输出会写到脚本默认的输出目录体系里；如果你想统一管理，建议额外指定输出目录参数。
-- 当前仓库已经兼容单卡 `torchrun`，推荐优先用这条命令。
+- `medvill.yaml` 默认安装的是 `PyTorch 1.7.0`，这个环境通常没有 `torchrun`，先用 `python -m torch.distributed.launch --use_env` 最稳妥。
+- 如果你的环境里 `torchrun --help` 可以正常执行，也可以把上一条命令替换成 `torchrun --standalone --nproc_per_node=1 --master_port 34221`。
 
 ### 解码与评测
 
 训练完以后，用生成结果做评测：
 
+注意：这里不要手动输入 shell 自动显示的续行提示符 `>`，只输入下面这些命令内容即可。
+
 ```bash
 cd /root/autodl-tmp/MedViLL
 python downstream_task/report_generation_and_vqa/generation_decode.py \
+  --repo_root /root/autodl-tmp/MedViLL \
+  --generation_dataset openi \
   --model_recover_path /path/to/output/model.50.bin \
   --beam_size 1
+```
+
+如果你想直接单行复制，推荐用这一条：
+
+```bash
+cd /root/autodl-tmp/MedViLL && python downstream_task/report_generation_and_vqa/generation_decode.py --repo_root /root/autodl-tmp/MedViLL --generation_dataset openi --model_recover_path /path/to/output/model.50.bin --beam_size 1
 ```
 
 当前主流程实际接上的指标是：
@@ -187,7 +224,6 @@ python downstream_task/report_generation_and_vqa/generation_decode.py \
   ```
   --bert_model /root/autodl-tmp/models/bert-base-uncased 
   ```
-  
   
 - 如果你打算训练后立即评测，确保训练产生的输出目录和 checkpoint 能保留在服务器磁盘上
 
