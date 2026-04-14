@@ -7,6 +7,7 @@ MODEL_ROOT=${1:-"${REPO_ROOT}/outputs"}
 OUTPUT_DIR=${OUTPUT_DIR:-"${REPO_ROOT}/outputs/report_generation/openi"}
 MASTER_PORT=${MASTER_PORT:-34221}
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-8}
+BERT_MODEL=${BERT_MODEL:-"/root/autodl-tmp/models/bert-base-uncased"}
 
 cd "${REPO_ROOT}"
 
@@ -20,7 +21,7 @@ for itr in "${MODEL_FILES[@]}";
 do
     echo ""
     echo "${itr}"
-    torchrun --standalone --nproc_per_node=1 --master_port "${MASTER_PORT}" \
+    python -m torch.distributed.launch --nproc_per_node=1 --master_port "${MASTER_PORT}" --use_env \
         "${SCRIPT_DIR}/finetune.py" \
         --repo_root "${REPO_ROOT}" \
         --output_dir "${OUTPUT_DIR}" \
@@ -31,5 +32,6 @@ do
         --mask_prob 0.15 \
         --s2s_prob 1 \
         --bi_prob 0 \
+        --bert_model "${BERT_MODEL}" \
         --model_recover_path "${itr}"
 done

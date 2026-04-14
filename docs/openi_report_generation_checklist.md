@@ -34,7 +34,26 @@
 
 训练和解码都会用到 `bert-base-uncased`。
 
-如果服务器联网不稳定，建议提前准备 Hugging Face 缓存，或者把 tokenizer 和权重下载好再拷到服务器。
+推荐固定放到这个本地目录：
+
+```text
+/root/autodl-tmp/models/bert-base-uncased
+```
+
+里面至少准备：
+
+```text
+vocab.txt
+config.json
+tokenizer_config.json
+tokenizer.json
+```
+
+如果服务器联网不稳定，建议提前把这些文件下载好再拷到服务器，并在训练和解码命令里显式传：
+
+```text
+--bert_model /root/autodl-tmp/models/bert-base-uncased
+```
 
 ### 4. 训练输出空间
 
@@ -84,3 +103,17 @@
 3. 确保 `bert-base-uncased` 可用
 4. 在 `/root/autodl-tmp/MedViLL` 执行数据准备脚本
 5. 再启动报告生成训练
+## Local BERT Recommendation
+
+For the current OpenI workflow, prefer downloading `bert-base-uncased`
+into this fixed local directory:
+
+```text
+/root/autodl-tmp/models/bert-base-uncased
+```
+
+Run both training and decoding with:
+
+```text
+--bert_model /root/autodl-tmp/models/bert-base-uncased
+```

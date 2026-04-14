@@ -98,6 +98,7 @@ downstream_task/report_generation_and_vqa/finetune.py \
   --mask_prob 0.15 \
   --s2s_prob 1 \
   --bi_prob 0 \
+  --bert_model /root/autodl-tmp/models/bert-base-uncased \
   --model_recover_path /root/autodl-tmp/checkpoints/medvill/pytorch_model.bin 
 ```
 
@@ -119,6 +120,7 @@ cd /root/autodl-tmp/MedViLL
 python downstream_task/report_generation_and_vqa/generation_decode.py \
   --repo_root /root/autodl-tmp/MedViLL \
   --generation_dataset openi \
+  --bert_model /root/autodl-tmp/models/bert-base-uncased \
   --model_recover_path /path/to/output/model.50.bin \
   --beam_size 1
 ```
@@ -126,7 +128,7 @@ python downstream_task/report_generation_and_vqa/generation_decode.py \
 如果你想直接单行复制，推荐用这一条：
 
 ```bash
-cd /root/autodl-tmp/MedViLL && python downstream_task/report_generation_and_vqa/generation_decode.py --repo_root /root/autodl-tmp/MedViLL --generation_dataset openi --model_recover_path /path/to/output/model.50.bin --beam_size 1
+cd /root/autodl-tmp/MedViLL && python downstream_task/report_generation_and_vqa/generation_decode.py --repo_root /root/autodl-tmp/MedViLL --generation_dataset openi --bert_model /root/autodl-tmp/models/bert-base-uncased --model_recover_path /path/to/output/model.50.bin --beam_size 1
 ```
 
 当前主流程实际接上的指标是：
