@@ -1,0 +1,31 @@
+train_dataset: 'data/openi/Train.jsonl'
+valid_dataset: 'data/openi/Valid.jsonl'
+test_dataset: 'data/openi/Test.jsonl'
+
+epochs: 10
+batch_size: 4
+num_workers: 4
+img_encoder: random-pixel
+img_size: 512
+img_embed_pool_type: max
+num_image_embeds: 180
+img_channel: 3
+image_res: 224
+vision_width: 768
+embedding_size: 768
+hidden_size: 768
+lr: 0.00001
+gradient_accumulation_steps: 4
+warmup: 0.1
+warmup_steps: 0
+tokenizer: "bert-base-uncased"
+bert_model: "bert-base-scratch"
+vocab_size: 30522
+
+beta1: 0.9
+beta2: 0.999
+eps: 1e-6
+weight_decay: 0.01
+
+seq_len: 253
+max_seq_len: 512

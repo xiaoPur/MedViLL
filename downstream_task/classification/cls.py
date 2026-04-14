@@ -1,16 +1,20 @@
 import os
 import csv
 import argparse
+from pathlib import Path
 import torch.nn as nn
 from tqdm import tqdm
 from datetime import datetime
 import torch.optim as optim
-from pytorch_pretrained_bert import BertAdam
+from torch.optim import AdamW
 from sklearn.metrics import f1_score, accuracy_score, roc_auc_score
 from data.helpers import get_data_loaders
 from models import get_model
 from utils.logger import create_logger
 from utils.utils import *
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent.parent
 
 
 def get_args(parser):
@@ -23,25 +27,24 @@ def get_args(parser):
 
     now = datetime.now()
     now = now.strftime('%Y-%m-%d')
-    output_path = "output/" + str(now)
-    if not os.path.exists(output_path):
-        os.mkdir(output_path)
-        os.chmod(output_path, 0o777)
+    output_path = REPO_ROOT / "output" / str(now)
+    os.makedirs(output_path, exist_ok=True)
+    os.chmod(output_path, 0o777)
 
-    parser.add_argument("--savedir", type=str, default=output_path)
+    parser.add_argument("--savedir", type=str, default=str(output_path))
     # save_name
-    parser.add_argument("--save_name", type=str, default='mimic_par', help='file name to save combination of daset and loaddir name')
+    parser.add_argument("--save_name", type=str, default='openi_cls', help='file name to save combination of daset and loaddir name')
 
     parser.add_argument("--loaddir", type=str, default='path/to/pre-trained_model')
     parser.add_argument("--name", type=str, default="scenario_name")
 
 
-    parser.add_argument("--openi", type=bool, default=False)
-    parser.add_argument("--data_path", type=str, default='/home/data_storage/mimic-cxr/dataset/new_dset',
+    parser.add_argument("--openi", type=bool, default=True)
+    parser.add_argument("--data_path", type=str, default=str(REPO_ROOT / 'data' / 'openi'),
                         help="dset path for training")
-    parser.add_argument("--Train_dset_name", type=str, default='Train_253.jsonl',
+    parser.add_argument("--Train_dset_name", type=str, default='Train.jsonl',
                         help="train dset for mimic")
-    parser.add_argument("--Valid_dset_name", type=str, default='Test_253.jsonl',
+    parser.add_argument("--Valid_dset_name", type=str, default='Valid.jsonl',
                         help="valid dset for mimic")
 
     parser.add_argument("--embed_sz", type=int, default=768, choices=[768])
@@ -67,6 +70,7 @@ def get_args(parser):
     parser.add_argument("--img_embed_pool_type", type=str, default="avg", choices=["max", "avg"])
     parser.add_argument("--img_hidden_sz", type=int, default=2048)
     parser.add_argument("--include_bn", type=int, default=True)
+    parser.add_argument("--img_size", type=int, default=512)
 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--lr_factor", type=float, default=0.5)
@@ -104,11 +108,7 @@ def get_optimizer(model, args):
     optimizer_grouped_parameters = [
         {"params": [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], "weight_decay": 0.01},
         {"params": [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], "weight_decay": 0.0, }]
-    optimizer = BertAdam(
-        optimizer_grouped_parameters,
-        lr=args.lr,
-        warmup=args.warmup,
-        t_total=total_steps)
+    optimizer = AdamW(optimizer_grouped_parameters, lr=args.lr)
     return optimizer
 
 
@@ -170,10 +170,11 @@ def model_eval(data, model, args, criterion, device, store_preds=False):
 def model_forward(model, args, criterion, batch, device):
     txt, segment, mask, img, tgt = batch
     model.to(device)
+    model_ref = model.module if isinstance(model, nn.DataParallel) else model
     if args.num_image_embeds > 0:
-        for param in model.module.enc.img_encoder.parameters():
+        for param in model_ref.enc.img_encoder.parameters():
             param.requires_grad = args.freeze_img_all
-    for param in model.module.enc.encoder.parameters():
+    for param in model_ref.enc.encoder.parameters():
         param.requires_grad = args.freeze_txt_all
 
     txt, img = txt.to(device), img.to(device)
@@ -229,8 +230,7 @@ def train(args):
 
     for i_epoch in range(start_epoch, args.max_epochs):
         train_losses = []
-        model.module.train()
-        # model.train()
+        model.train()
         optimizer.zero_grad()
 
         for batch in tqdm(train_loader, total=len(train_loader)):

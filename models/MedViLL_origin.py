@@ -64,11 +64,12 @@ class MedViLLEncoder(BertPreTrainedModel):
 
     def forward(self, cls_tok, input_txt, attn_mask, segment, input_img, sep_tok):
         extended_attn_mask = self.get_extended_attn_mask(attn_mask)
+        device = input_txt.device
         if self.args.disturbing_mask:
-            img_tok = (torch.LongTensor(input_txt.size(0), (self.configs['num_image_embeds'])).fill_(0).cuda())
-            sep_segment = (torch.LongTensor(input_txt.size(0), 1).fill_(0).cuda())
-            cls_segment = (torch.LongTensor(input_txt.size(0), 1).fill_(0).cuda())
-            txt_cls_segment = (torch.LongTensor(input_txt.size(0), 1).fill_(1).cuda())
+            img_tok = torch.zeros(input_txt.size(0), self.configs['num_image_embeds'], dtype=torch.long, device=device)
+            sep_segment = torch.zeros(input_txt.size(0), 1, dtype=torch.long, device=device)
+            cls_segment = torch.zeros(input_txt.size(0), 1, dtype=torch.long, device=device)
+            txt_cls_segment = torch.ones(input_txt.size(0), 1, dtype=torch.long, device=device)
             txt_cls_out = self.txt_embeddings(cls_tok, txt_cls_segment)
             img, img_pos = self.img_encoder(input_img)  # BxNx2048
 
@@ -83,8 +84,8 @@ class MedViLLEncoder(BertPreTrainedModel):
             return encoded_layers[-1], cls_represent
 
         else:
-            img_tok = (torch.LongTensor(input_txt.size(0), self.configs['num_image_embeds']).fill_(0).cuda())
-            cls_segment = (torch.LongTensor(input_txt.size(0), 1).fill_(0).cuda())
+            img_tok = torch.zeros(input_txt.size(0), self.configs['num_image_embeds'], dtype=torch.long, device=device)
+            cls_segment = torch.zeros(input_txt.size(0), 1, dtype=torch.long, device=device)
             cls_out = self.txt_embeddings(cls_tok, cls_segment)
             sep_out = self.txt_embeddings(sep_tok, cls_segment)
             img, position = self.img_encoder(input_img)

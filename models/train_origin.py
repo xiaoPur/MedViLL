@@ -10,8 +10,8 @@ import numpy as np
 
 from models.MedViLL_origin import MedViLL
 
-from transformers.optimization import AdamW
 from transformers import BertConfig, AlbertConfig, AutoConfig
+from torch.optim import AdamW
 
 
 class MedViLL_Trainer():
@@ -19,7 +19,10 @@ class MedViLL_Trainer():
         self.args = args
         self.configs = configs
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print('Current cuda device ', torch.cuda.current_device())  # check
+        if torch.cuda.is_available():
+            print('Current cuda device ', torch.cuda.current_device())  # check
+        else:
+            print('CUDA is not available, falling back to CPU')
 
         if args.weight_load:
             model_config = AutoConfig.from_pretrained(args.pre_trained_model_path)

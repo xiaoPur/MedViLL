@@ -1,6 +1,7 @@
 import json
 import numpy as np
 import os
+from pathlib import Path
 from PIL import Image
 
 import torch
@@ -13,11 +14,13 @@ class JsonlDataset(Dataset):
     def __init__(self, data_path, tokenizer, transforms, vocab, args):
         self.data = [json.loads(l) for l in open(data_path)]
         self.data_dir = os.path.dirname(data_path)
+        self.data_path = data_path
         self.tokenizer = tokenizer
         self.args = args
         self.vocab = vocab
         self.n_classes = len(args.labels)
         self.text_start_token =  ["[SEP]"]
+        self.repo_root = Path(data_path).resolve().parents[2]
 
         with numpy_seed(0):
             for row in self.data:
@@ -31,6 +34,23 @@ class JsonlDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+
+    def _resolve_image_path(self, img_path):
+        candidate = Path(os.path.expanduser(img_path))
+        if candidate.is_absolute() and candidate.exists():
+            return candidate
+        if candidate.exists():
+            return candidate
+
+        repo_relative = self.repo_root / candidate
+        if repo_relative.exists():
+            return repo_relative
+
+        data_relative = Path(self.data_dir) / candidate
+        if data_relative.exists():
+            return data_relative
+
+        return candidate
 
     def __getitem__(self, index):
         sentence = (
@@ -60,8 +80,7 @@ class JsonlDataset(Dataset):
 
         image = None
         if self.data[index]["img"]:
-            image = Image.open(
-                os.path.join(self.data_dir, self.data[index]["img"]))
+            image = Image.open(self._resolve_image_path(self.data[index]["img"]))
         else:
             image = Image.fromarray(128 * np.ones((256, 256, 3), dtype=np.uint8))
         image = self.transforms(image)

@@ -5,7 +5,7 @@ from collections import Counter
 
 import torch
 import torchvision.transforms as transforms
-from pytorch_pretrained_bert import BertTokenizer
+from transformers import BertTokenizer
 from torch.utils.data import DataLoader
 
 from data.dataset import JsonlDataset
@@ -13,9 +13,11 @@ from data.vocab import Vocab
 
 
 def get_transforms(args):
+    resize = transforms.Resize((args.img_size, args.img_size))
     if args.openi:
         return transforms.Compose(
             [
+                resize,
                 transforms.Grayscale(num_output_channels=3),
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -23,6 +25,7 @@ def get_transforms(args):
     else:
         return transforms.Compose(
             [
+                resize,
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ]

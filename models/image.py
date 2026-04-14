@@ -44,7 +44,7 @@ class ImageEncoder_cnn(nn.Module):
         out = self.model(x)  # 512x512: torch.Size([16, 2048, 16, 16])
         out = torch.flatten(out, start_dim=2).transpose(1, 2).contiguous()
         
-        vis_pe = torch.arange(out.size(1), dtype=torch.long).cuda()
+        vis_pe = torch.arange(out.size(1), dtype=torch.long, device=out.device)
         vis_pe = vis_pe.unsqueeze(0).expand(out.size(0), out.size(1))
 
         random_sampling = torch.randperm(out.size(1))[:self.configs['num_image_embeds']]
@@ -67,7 +67,7 @@ class fully_use_cnn(nn.Module):
     def forward(self, x):
         out = self.model(x)
         out = torch.flatten(out, start_dim=2).transpose(1, 2).contiguous()
-        vis_pe = torch.arange(out.size()[1], dtype=torch.long).cuda()
+        vis_pe = torch.arange(out.size()[1], dtype=torch.long, device=out.device)
         vis_pe = vis_pe.unsqueeze(0).expand(out.size()[0], out.size()[1])
         return out, vis_pe
 

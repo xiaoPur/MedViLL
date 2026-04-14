@@ -29,7 +29,13 @@ def train(config, args):
     else:
         samplers = [None, None, None]
         
-    train_data_loader, _, test_data_loader = create_loader(dset, samplers, batch_size=[config['batch_size'],config['batch_size'],config['batch_size']], is_trains=[True, False, False], num_workers=0)
+    train_data_loader, _, test_data_loader = create_loader(
+        dset,
+        samplers,
+        batch_size=[config['batch_size'], config['batch_size'], config['batch_size']],
+        is_trains=[True, False, False],
+        num_workers=config.get('num_workers', 0),
+    )
 
     print("Creating BERT Trainer")
     trainer = MedViLL_Trainer(args, config, train_dataloader=train_data_loader, test_dataloader=test_data_loader)
@@ -37,7 +43,7 @@ def train(config, args):
     print("Training Start!")
     for epoch in range(config['epochs']):
         trainer.train(epoch)
-        trainer.save(epoch, args.output_path)
+        trainer.save(epoch, args.output_dir)
 
 
 if __name__ == '__main__':
@@ -57,14 +63,16 @@ if __name__ == '__main__':
     ## pre_trained_model_path, weight_load
     parser.add_argument("--weight_load", type=bool, default=False, help='pre-trained_model_mid_epoch_load')
     parser.add_argument("--pre_trained_model_path", type=str)
+    parser.add_argument("--config", type=str, default="configs/pretrain_openi_server.yaml")
+    parser.add_argument("--output_dir", type=str, default=None)
     
     parser.add_argument("--seed", type=int, default=123)
     args = parser.parse_args()
     
-    config = yaml.load(open('./configs/pretrain.yaml', 'r'), Loader=yaml.Loader)
-    now = datetime.datetime.now()
-    nowDate = now.strftime('%m%d-%H%M')
-    args.output_dir = 'output/'+nowDate
+    config = yaml.load(open(args.config, 'r'), Loader=yaml.Loader)
+    if args.output_dir is None:
+        now_date = datetime.now().strftime('%m%d-%H%M')
+        args.output_dir = os.path.join('output', now_date)
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     train(config, args)

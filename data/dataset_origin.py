@@ -45,8 +45,24 @@ class CXRDataset(Dataset):
         self.max_seq_len -= config['num_image_embeds']  # 512 - #img_embeds
         self.total_len = self.seq_len + self.config['num_image_embeds'] + 3
         self._tril_matrix = torch.tril(torch.ones((self.total_len, self.total_len), dtype=torch.long))
-        self.vocab_stoi = self.tokenizer.vocab
+        if hasattr(self.tokenizer, "get_vocab"):
+            self.vocab_stoi = self.tokenizer.get_vocab()
+        else:
+            self.vocab_stoi = self.tokenizer.vocab
         self.vocab_len = len(self.vocab_stoi)
+
+    def _resolve_image_path(self, img_path):
+        candidate = os.path.expanduser(img_path)
+        if os.path.isabs(candidate) and os.path.exists(candidate):
+            return candidate
+        if os.path.exists(candidate):
+            return candidate
+
+        data_relative = os.path.join(self.data_dir, img_path)
+        if os.path.exists(data_relative):
+            return data_relative
+
+        return candidate
         
     def __len__(self):
         return len(self.data)
@@ -64,11 +80,11 @@ class CXRDataset(Dataset):
             #(Mock value)
             is_aligned = 1
 
-        image = Image.open(os.path.join(img_path)).convert("RGB")
+        image = Image.open(self._resolve_image_path(img_path)).convert("RGB")
 
         image = get_transforms()(image)
         
-        tokenized_sentence = self.tokenizer(origin_txt)
+        tokenized_sentence = self.tokenizer.tokenize(origin_txt)
         truncate_txt(tokenized_sentence, self.seq_len)
 
         encoded_sentence = [self.vocab_stoi[w] if w in self.vocab_stoi else self.vocab_stoi["[UNK]"]
