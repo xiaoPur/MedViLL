@@ -121,7 +121,7 @@ python downstream_task/report_generation_and_vqa/generation_decode.py \
   --repo_root /root/autodl-tmp/MedViLL \
   --generation_dataset openi \
   --bert_model /root/autodl-tmp/models/bert-base-uncased \
-  --model_recover_path /path/to/output/model.50.bin \
+  --model_recover_path /root/autodl-tmp/MedViLL/outputs/report_generation/openi/model.6.bin \
   --beam_size 1
 ```
 

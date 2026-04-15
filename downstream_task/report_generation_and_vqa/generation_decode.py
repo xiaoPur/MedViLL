@@ -373,6 +373,7 @@ def main():
                                 total_score.append(ppl.item())
                             else:
                                 pass
+                    pbar.update(1)
                 end = time.time()
                 print(end - start)
             if args.beam_size == 1:
